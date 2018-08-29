@@ -1,0 +1,59 @@
+{
+  "classes": [
+    {
+      "id": "0",
+      "name": "background-tissue",
+      "color": "[0,0,0]"
+    },
+    {
+      "id": "1",
+      "name": "instrument-shaft",
+      "color": "[0,255,0]"
+    },
+    {
+      "id": "2",
+      "name": "instrument-clasper",
+      "color": "[0,255,255]",
+    },
+    {
+      "id": "3",
+      "name": "instrument-wrist",
+      "color": "[125,255,12]",
+    },
+    {
+      "id": "4",
+      "name": "kidney-parenchyma",
+      "color": "[255,55,0]",
+    },
+    {
+      "id": "5",
+      "name": "covered-kidney",
+      "color": "[24,55,125]",
+    },
+    {
+      "id": "6",
+      "name": "thread",
+      "color": "[187,155,25]",
+    },
+    {
+      "id": "7",
+      "name": "clapms",
+      "color": "[0,255,125]",
+    },
+    {
+      "id": "8",
+      "name": "suturing-needle",
+      "color": "[255,255,125]",
+    },
+    {
+      "id": "9",
+      "name": "suction-instrument",
+      "color": "[123,15,175]",
+    },
+    {
+      "id": "10",
+      "name": "small-intestine",
+      "color": "[124,155,5]",
+    },
+  ]
+}
