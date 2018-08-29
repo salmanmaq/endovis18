@@ -55,5 +55,10 @@
       "name": "small-intestine",
       "color": "[124,155,5]",
     },
+    {
+      "id": "11",
+      "name": "ultrasound-probe",
+      "color": "[12,255,141]",
+    },
   ]
 }
