@@ -29,12 +29,12 @@ class endovisDataset(Dataset):
         self.root_dir = root_dir
         self.sub_dirs = [os.path.join(self.root_dir, sd) for sd in os.listdir(self.root_dir) \
                         if os.path.isdir(os.path.join(self.root_dir, sd))]
-        self.img_dirs = [os.path.join(sd, 'left_images') for sd in self.sub_dirs]
+        self.img_dirs = [os.path.join(sd, 'left_frames') for sd in self.sub_dirs]
         if self.training:
             self.gt_dirs = [os.path.join(sd, 'labels') for sd in self.sub_dirs]
         self.image_list = []
         for img_dir in self.img_dirs:
-            self.image_list.append([f for f in os.listdir(img_dir) if (f.endswith('.png') or f.endswith('.jpg'))])
+            self.image_list = [os.path.join(img_dir, f) for f in os.listdir(img_dir) if (f.endswith('.png') or f.endswith('.jpg'))]
         self.transform = transform
 
         if json_path:
@@ -46,12 +46,12 @@ class endovisDataset(Dataset):
         return len(self.image_list)
 
     def __getitem__(self, idx):
-        img_name = os.path.join(self.img_dir, self.image_list[idx])
+        img_name = self.image_list[idx]
         image = Image.open(img_name)
         image = image.convert('RGB')
-        if not self.training:
+        if self.training:
             gt_file_name = img_name.split('/')[-1]
-            gt_name = os.path.join(self.gt_dir, gt_file_name)
+            gt_name = "/".join(img_name.split('/')[0:-2]) + "/labels/" + gt_file_name
             gt = Image.open(gt_name)
             gt = gt.convert('RGB')
 

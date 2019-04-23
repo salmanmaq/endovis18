@@ -18,7 +18,8 @@ import torch.optim as optim
 from torch.autograd import Variable
 import torch.utils.data
 import torchvision.transforms as transforms
-import torch.nn.functional as F
+
+from tensorboardX import SummaryWriter
 
 import utils
 from model.segnet import SegNet
@@ -31,6 +32,8 @@ parser.add_argument('--epochs', default=20, type=int, metavar='N',
             help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
             help='manual epoch number (useful on restarts)')
+parser.add_argument('--validationSplit', default=0.2, type=float,
+                    help='Validation dataset split fraction')
 parser.add_argument('--batchSize', default=4, type=int,
             help='Mini-batch size (default: 4)')
 parser.add_argument('--lr', '--learning-rate', default=0.05, type=float,
@@ -57,6 +60,8 @@ parser.add_argument('--saveTest', default='False', type=str,
 
 best_prec1 = np.inf
 use_gpu = torch.cuda.is_available()
+
+writer = SummaryWriter()
 
 def main():
     global args, best_prec1
@@ -97,30 +102,43 @@ def main():
     # json path for class definitions
     json_path = '/home/salman/pytorch/endovis18/datasets/endovisClasses.json'
 
-    train_image_dataset = miccaiSegDataset(os.path.join(data_dir, 'train_data'),
+    trainval_image_dataset = endovisDataset(os.path.join(data_dir, 'train_data'),
                         data_transforms['train'], json_path=json_path, training=True)
-    test_image_dataset = miccaiSegDataset(os.path.join(data_dir, 'test_data'),
+    val_size = int(args.validationSplit * len(trainval_image_dataset))
+    train_size = len(trainval_image_dataset) - val_size
+    train_image_dataset, val_image_dataset = torch.utils.data.random_split(trainval_image_dataset, [train_size,
+                                                                                                       val_size])
+
+    test_image_dataset = endovisDataset(os.path.join(data_dir, 'test_data'),
                         data_transforms['test'], json_path=json_path, training=False)
+
+
 
     train_dataloader = torch.utils.data.DataLoader(train_image_dataset,
                                                   batch_size=args.batchSize,
                                                   shuffle=True,
                                                   num_workers=args.workers)
+    val_dataloader = torch.utils.data.DataLoader(val_image_dataset,
+                                                batch_size=args.batchSize,
+                                                shuffle=True,
+                                                num_workers=args.workers)
     test_dataloader = torch.utils.data.DataLoader(test_image_dataset,
                                                   batch_size=args.batchSize,
                                                   shuffle=True,
                                                   num_workers=args.workers)
 
     train_dataset_size = len(train_image_dataset)
+    val_dataset_size = len(val_image_dataset)
     test_dataset_size = len(test_image_dataset)
 
     # Get the dictionary for the id and RGB value pairs for the dataset
-    classes = train_image_dataset.classes
+    # print(train_image_dataset.classes)
+    classes = trainval_image_dataset.classes
     key = utils.disentangleKey(classes)
     num_classes = len(key)
 
     # Initialize the model
-    model = SegNet(num_classes)
+    model = SegNet(batchNorm_momentum=args.bnMomentum , num_classes=num_classes)
 
     # # Optionally resume from a checkpoint
     # if args.resume:
@@ -177,19 +195,22 @@ def main():
         train(train_dataloader, model, criterion, optimizer, scheduler, epoch, key)
 
         # Evaulate on validation set
-
         print('>>>>>>>>>>>>>>>>>>>>>>>Testing<<<<<<<<<<<<<<<<<<<<<<<')
-        validate(test_dataloader, model, criterion, epoch, key, evaluator)
+        validate(val_dataloader, model, criterion, epoch, key, evaluator)
 
         # Calculate the metrics
         print('>>>>>>>>>>>>>>>>>> Evaluating the Metrics <<<<<<<<<<<<<<<<<')
         IoU = evaluator.getIoU()
         print('Mean IoU: {}, Class-wise IoU: {}'.format(torch.mean(IoU), IoU))
+        writer.add_scalar('Epoch Mean IoU', torch.mean(IoU), epoch)
         PRF1 = evaluator.getPRF1()
         precision, recall, F1 = PRF1[0], PRF1[1], PRF1[2]
         print('Mean Precision: {}, Class-wise Precision: {}'.format(torch.mean(precision), precision))
+        writer.add_scalar('Epoch Mean Precision', torch.mean(precision), epoch)
         print('Mean Recall: {}, Class-wise Recall: {}'.format(torch.mean(recall), recall))
+        writer.add_scalar('Epoch Mean Recall', torch.mean(recall), epoch)
         print('Mean F1: {}, Class-wise F1: {}'.format(torch.mean(F1), F1))
+        writer.add_scalar('Epoch Mean F1', torch.mean(F1), epoch)
         evaluator.reset()
 
         save_checkpoint({
@@ -205,7 +226,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, epoch, key):
 
     # Switch to train mode
     model.train()
-
+    epoch_loss = 0
     for i, (img, gt) in enumerate(train_loader):
 
         # For TenCrop Data Augmentation
@@ -233,13 +254,15 @@ def train(train_loader, model, criterion, optimizer, scheduler, epoch, key):
         loss.backward()
         optimizer.step()
 
-        scheduler.step(loss.mean().data[0])
+        scheduler.step(loss.mean().item())
+        epoch_loss += loss.mean().item()
 
         print('[%d/%d][%d/%d] Loss: %.4f'
-              % (epoch, args.epochs-1, i, len(train_loader)-1, loss.mean().data[0]))
-
+              % (epoch, args.epochs-1, i, len(train_loader)-1, loss.mean().item()))
         utils.displaySamples(img, seg, gt, use_gpu, key, False, epoch,
                              i, args.save_dir)
+
+    writer.add_scalar('Train Epoch Loss', epoch_loss / (i+1), epoch)
 
 def validate(val_loader, model, criterion, epoch, key, evaluator):
     '''
@@ -248,11 +271,14 @@ def validate(val_loader, model, criterion, epoch, key, evaluator):
 
     # Switch to evaluate mode
     model.eval()
+    epoch_loss = 0
 
     for i, (img, gt) in enumerate(val_loader):
 
         # Process the network inputs and outputs
+        img = img.view(-1, 3, args.resizedImageSize, args.resizedImageSize)
         img = utils.normalize(img, torch.Tensor([0.295, 0.204, 0.197]), torch.Tensor([0.221, 0.188, 0.182]))
+        gt = gt.view(-1, 3, args.resizedImageSize, args.resizedImageSize)
         gt_temp = gt * 255
         label = utils.generateLabel4CE(gt_temp, key)
         oneHotGT = utils.generateOneHot(gt_temp, key)
@@ -267,12 +293,14 @@ def validate(val_loader, model, criterion, epoch, key, evaluator):
         seg = model(img)
         loss = model.dice_loss(seg, label)
 
+        epoch_loss += loss.mean().item()
         print('[%d/%d][%d/%d] Loss: %.4f'
-              % (epoch, args.epochs-1, i, len(val_loader)-1, loss.mean().data[0]))
-
+              % (epoch, args.epochs-1, i, len(val_loader)-1, loss.mean().item()))
         utils.displaySamples(img, seg, gt, use_gpu, key, args.saveTest, epoch,
                              i, args.save_dir)
         evaluator.addBatch(seg, oneHotGT)
+
+    writer.add_scalar('Train Epoch Loss', epoch_loss / (i + 1), epoch)
 
 def save_checkpoint(state, filename='checkpoint.pth.tar'):
     '''
